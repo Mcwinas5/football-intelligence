@@ -1,0 +1,25 @@
+const base = process.env.BASE_URL ?? "http://127.0.0.1:3100";
+const admin = { "x-admin-token": process.env.ADMIN_TOKEN ?? "dev-admin-token", "content-type": "application/json" };
+async function request(path, options = {}) { const response = await fetch(base + path, options); const body = await response.json(); if (!response.ok) throw new Error(`${path}: ${response.status} ${JSON.stringify(body)}`); return body; }
+const prospectData = await request("/api/validation/prospects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Mock Visitor", phone_or_telegram: "@mockvisitor", acquisition_source: "telegram" }) });
+const { prospect, assignment } = prospectData;
+if (!prospect || prospect.acquisition_source !== "telegram") throw new Error("Attribution was not persisted");
+if (!assignment || ![1000, 2000].includes(assignment.assigned_price)) throw new Error("Pricing assignment missing");
+const checkout = await request("/api/validation/checkout", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prospect_id: prospect.id, client_submitted_price: 1 }) });
+if (checkout.amount !== assignment.assigned_price) throw new Error("Checkout did not use server assigned price");
+const payment = await request("/api/validation/mock/payment", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prospect_id: prospect.id, success: true }) });
+if (payment.payment_status !== "successful" || payment.payment_amount !== assignment.assigned_price || !payment.payment_reference) throw new Error("Mock payment verification failed");
+const activation = await request("/api/validation/mock/telegram", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prospect_id: prospect.id, telegram_identifier: "mock-telegram-id" }) });
+if (activation.activation_status !== "activated") throw new Error("Mock Telegram activation failed");
+const prediction = await request("/api/admin/predictions", { method: "POST", headers: admin, body: JSON.stringify({ competition: "EPL", home_team: "Mock FC", away_team: "Test United", market: "O2.5", selection: "Over", model_probability: 0.64, market_odds: 1.72, odds_source: "mock", odds_timestamp: new Date().toISOString(), implied_probability: 0.581, estimated_edge: 0.059, confidence: "Medium", risk_flags: ["Mock risk"], model_version: "mock-v1", data_version: "mock-v1", kickoff_timestamp: new Date(Date.now() + 7200000).toISOString() }) });
+const subscriber = await request("/api/predictions?access=subscriber");
+const publicBefore = await request("/api/predictions?access=public");
+if (!subscriber.records.some((item) => item.id === prediction.id)) throw new Error("Subscriber cannot see published prediction");
+if (publicBefore.records.some((item) => item.id === prediction.id)) throw new Error("Public one-hour delay is not enforced");
+const correction = await request(`/api/admin/predictions/${prediction.id}/correct`, { method: "POST", headers: admin, body: JSON.stringify({ corrected_value: { market_odds: 1.71 }, reason: "Mock correction", corrected_by: "mock-admin" }) });
+const settled = await request(`/api/admin/predictions/${prediction.id}/settle`, { method: "POST", headers: admin, body: JSON.stringify({ result: "WON" }) });
+const state = await request(`/api/validation/state/${prospect.id}`);
+const metrics = await request("/api/admin/metrics", { headers: admin });
+if (!state.events.some((event) => event.event_name === "payment_completed") || !state.events.some((event) => event.event_name === "telegram_activated")) throw new Error("Required durable-event architecture not exercised");
+if (!correction.id || settled.settlement_status !== "settled" || metrics.purchases < 1) throw new Error("Settlement or metrics failed");
+console.log(JSON.stringify({ ok: true, prospect_id: prospect.id, acquisition_source: prospect.acquisition_source, pricing_variant: assignment.variant, assigned_price: assignment.assigned_price, checkout_amount: checkout.amount, payment_reference: payment.payment_reference, telegram_status: activation.activation_status, subscriber_visible: true, public_visible_before_one_hour: false, prediction_id: prediction.prediction_id, server_publication_timestamp: prediction.publication_timestamp, correction_id: correction.id, settled_result: settled.result, metrics }, null, 2));

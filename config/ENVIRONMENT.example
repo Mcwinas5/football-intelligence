@@ -1,0 +1,21 @@
+# Non-live validation infrastructure placeholders
+NODE_ENV=development
+PORT=3000
+
+# Supabase/PostgreSQL (server-side only)
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+
+# Payment provider (server-side only; leave blank for mock mode)
+PAYMENT_PROVIDER=mock
+PAYSTACK_SECRET_KEY=
+PAYSTACK_WEBHOOK_SECRET=
+
+# Telegram (server-side only; leave blank for mock mode)
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHANNEL_ID=
+TELEGRAM_GROUP_ID=
+
+# Internal admin protection
+ADMIN_TOKEN=dev-admin-token

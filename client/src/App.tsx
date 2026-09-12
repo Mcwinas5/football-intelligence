@@ -4,6 +4,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home, { LegalPage, LedgerPage, MethodologyPage, ResponsibleUsePage, TrialPage } from "./pages/Home";
+import AdminValidation from "./pages/AdminValidation";
 
 function Router() {
   return (
@@ -13,6 +14,7 @@ function Router() {
       <Route path="/trial" component={TrialPage} />
       <Route path="/methodology" component={MethodologyPage} />
       <Route path="/responsible-use" component={ResponsibleUsePage} />
+      <Route path="/admin/validation" component={AdminValidation} />
       <Route path="/privacy"><LegalPage title="Privacy placeholder" eyebrow="LEGAL" /></Route>
       <Route path="/terms"><LegalPage title="Terms placeholder" eyebrow="LEGAL" /></Route>
       <Route component={Home} />
