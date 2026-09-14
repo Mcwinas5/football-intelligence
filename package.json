@@ -9,7 +9,12 @@
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:audit": "node validation_audit_test.mjs",
+    "test:consistency": "node validation_pricing_consistency_test.mjs",
+    "test:security": "node validation_security_test.mjs",
+    "test:tamper": "node validation_pricing_test.mjs",
+    "test:e2e": "node validation_e2e.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

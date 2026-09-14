@@ -6,7 +6,10 @@ export type ActivationStatus = "pending" | "activated" | "failed";
 export type EventName = "page_view" | "hero_trial_clicked" | "ledger_viewed" | "ledger_prediction_opened" | "trial_clicked" | "pricing_variant_assigned" | "checkout_started" | "payment_completed" | "telegram_clicked" | "telegram_activated" | "faq_opened" | "responsible_use_viewed";
 
 export interface Prospect { id: string; name: string; email?: string; phone_or_telegram: string; acquisition_source: string; created_at: string; }
-export interface PricingAssignment { id: string; prospect_id: string; variant: Variant; assigned_price: number; assigned_at: string; }
+// prospect_id is null while an assignment exists pre-signup (server-assigned on first
+// visit, bound to the prospect at creation). prospect_id !== null therefore means the
+// assignment belongs to a prospect and is counted in experiment cohorts.
+export interface PricingAssignment { id: string; prospect_id: string | null; variant: Variant; assigned_price: number; assigned_at: string; }
 export interface TrialPurchase { id: string; prospect_id: string; pricing_variant: Variant; assigned_price: number; payment_amount?: number; payment_reference?: string; payment_status: PaymentStatus; purchased_at?: string; created_at: string; }
 export interface TelegramActivation { id: string; prospect_id: string; telegram_identifier?: string; activation_status: ActivationStatus; activated_at?: string; created_at: string; }
 export interface AnalyticsEvent { id: string; prospect_id?: string; event_name: EventName; event_properties: Record<string, unknown>; created_at: string; }
@@ -35,19 +38,50 @@ export function recordEvent(event_name: EventName, prospect_id: string | undefin
 }
 export function findProspect(id: string) { return store.prospects.find((item) => item.id === id); }
 export function findAssignment(prospect_id: string) { return store.pricingAssignments.find((item) => item.prospect_id === prospect_id); }
-export function assignPricing(prospect_id: string) {
-  const existing = findAssignment(prospect_id);
-  if (existing) return existing;
+
+function buildAssignment(prospect_id: string | null): PricingAssignment {
   const variant: Variant = Math.random() < 0.5 ? "A" : "B";
-  const assignment = { id: randomUUID(), prospect_id, variant, assigned_price: amountFor(variant), assigned_at: now() };
+  const assignment: PricingAssignment = { id: randomUUID(), prospect_id, variant, assigned_price: amountFor(variant), assigned_at: now() };
   store.pricingAssignments.push(assignment);
-  recordEvent("pricing_variant_assigned", prospect_id, { pricing_variant: variant, assigned_price: assignment.assigned_price });
+  recordEvent("pricing_variant_assigned", prospect_id ?? undefined, { assignment_id: assignment.id, pricing_variant: variant, assigned_price: assignment.assigned_price });
   return assignment;
 }
-export function createProspect(input: { name: string; email?: string; phone_or_telegram: string; acquisition_source?: string }) {
+
+// Creates a server-assigned pricing variant with no prospect attached (pre-signup).
+export function createPricingAssignment(): PricingAssignment { return buildAssignment(null); }
+
+// Idempotent lookup used by the client to display its cohort: a known assignment id
+// always returns the same variant/price (stability). Unknown or absent ids produce a
+// NEW server-chosen assignment — the client can never inject or select a variant.
+export function getPricingAssignment(requested_assignment_id?: string): PricingAssignment {
+  if (requested_assignment_id) {
+    const existing = store.pricingAssignments.find((item) => item.id === requested_assignment_id);
+    if (existing) return existing;
+  }
+  return createPricingAssignment();
+}
+
+// Binds the pricing assignment for a prospect. Once a prospect has an assignment it
+// never changes (stability). A pre-signup assignment is bound by id only if it is
+// still unbound; otherwise a fresh server-side assignment is created. The client
+// cannot choose the variant or the price.
+export function assignPricing(prospect_id: string, requested_assignment_id?: string): PricingAssignment {
+  const existing = findAssignment(prospect_id);
+  if (existing) return existing;
+  if (requested_assignment_id) {
+    const preassigned = store.pricingAssignments.find((item) => item.id === requested_assignment_id);
+    if (preassigned && preassigned.prospect_id === null) {
+      preassigned.prospect_id = prospect_id;
+      return preassigned;
+    }
+  }
+  return buildAssignment(prospect_id);
+}
+
+export function createProspect(input: { name: string; email?: string; phone_or_telegram: string; acquisition_source?: string; assignment_id?: string }) {
   const prospect = { id: randomUUID(), name: input.name, email: input.email, phone_or_telegram: input.phone_or_telegram, acquisition_source: normalizeSource(input.acquisition_source), created_at: now() };
   store.prospects.push(prospect);
-  const assignment = assignPricing(prospect.id);
+  const assignment = assignPricing(prospect.id, input.assignment_id);
   return { prospect, assignment };
 }
 export function startCheckout(prospect_id: string) {
@@ -107,5 +141,7 @@ export function correctPrediction(id: string, corrected_value: unknown, reason: 
 }
 export function metrics() {
   const successful = store.trialPurchases.filter((item) => item.payment_status === "successful");
-  return { total_prospects: store.prospects.length, activated_prospects: store.telegramActivations.filter((item) => item.activation_status === "activated").length, cohort_a: store.pricingAssignments.filter((item) => item.variant === "A").length, cohort_b: store.pricingAssignments.filter((item) => item.variant === "B").length, purchases: successful.length, revenue: successful.reduce((sum, item) => sum + (item.payment_amount ?? 0), 0), payment_conversion: store.prospects.length ? successful.length / store.prospects.length : 0, telegram_activation_rate: successful.length ? store.telegramActivations.filter((item) => item.activation_status === "activated").length / successful.length : 0, total_predictions: store.predictions.length, settled_predictions: store.predictions.filter((item) => item.settlement_status === "settled").length, wins: store.predictions.filter((item) => item.result === "WON").length, losses: store.predictions.filter((item) => item.result === "LOST").length, no_bets: store.predictions.filter((item) => item.result === "NO BET").length, acquisition_sources: store.prospects.reduce<Record<string, number>>((out, item) => { out[item.acquisition_source] = (out[item.acquisition_source] ?? 0) + 1; return out; }, {}) };
+  // Cohort counts include only assignments bound to a prospect so that pre-signup
+  // (unbound) assignments do not inflate the experiment cohorts.
+  return { total_prospects: store.prospects.length, activated_prospects: store.telegramActivations.filter((item) => item.activation_status === "activated").length, cohort_a: store.pricingAssignments.filter((item) => item.variant === "A" && item.prospect_id !== null).length, cohort_b: store.pricingAssignments.filter((item) => item.variant === "B" && item.prospect_id !== null).length, purchases: successful.length, revenue: successful.reduce((sum, item) => sum + (item.payment_amount ?? 0), 0), payment_conversion: store.prospects.length ? successful.length / store.prospects.length : 0, telegram_activation_rate: successful.length ? store.telegramActivations.filter((item) => item.activation_status === "activated").length / successful.length : 0, total_predictions: store.predictions.length, settled_predictions: store.predictions.filter((item) => item.settlement_status === "settled").length, wins: store.predictions.filter((item) => item.result === "WON").length, losses: store.predictions.filter((item) => item.result === "LOST").length, no_bets: store.predictions.filter((item) => item.result === "NO BET").length, acquisition_sources: store.prospects.reduce<Record<string, number>>((out, item) => { out[item.acquisition_source] = (out[item.acquisition_source] ?? 0) + 1; return out; }, {}) };
 }

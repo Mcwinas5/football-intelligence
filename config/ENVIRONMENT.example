@@ -18,4 +18,8 @@ TELEGRAM_CHANNEL_ID=
 TELEGRAM_GROUP_ID=
 
 # Internal admin protection
+# REQUIRED for admin endpoints. The server FAILS CLOSED: if ADMIN_TOKEN is unset,
+# admin endpoints are disabled with an explicit error (there is no default token).
+# Use a long random value in production. Never commit the real value.
+# Example value below is for local development only.
 ADMIN_TOKEN=dev-admin-token

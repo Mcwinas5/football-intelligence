@@ -5,7 +5,7 @@ import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldAlert } from "lu
 const initial = { total_prospects: 0, activated_prospects: 0, cohort_a: 0, cohort_b: 0, purchases: 0, revenue: 0, payment_conversion: 0, telegram_activation_rate: 0, total_predictions: 0, settled_predictions: 0, wins: 0, losses: 0, no_bets: 0, acquisition_sources: {} as Record<string, number> };
 
 export default function AdminValidation() {
-  const [token, setToken] = useState("dev-admin-token");
+  const [token, setToken] = useState("");
   const [metrics, setMetrics] = useState(initial);
   const [status, setStatus] = useState("Development/mock mode");
   async function refresh() {
